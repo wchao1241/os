@@ -13,10 +13,13 @@ import (
 )
 
 func LoadService(p *project.Project, cfg *config.CloudConfig, useNetwork bool, service string) error {
-	bytes, err := network.LoadServiceResource(service, useNetwork, cfg)
-	if err != nil {
-		log.Error(err)
-		return err
+	bytes, err := network.LoadMultiEngineResource(service)
+	if err != nil || bytes == nil {
+		bytes, err = network.LoadServiceResource(service, useNetwork, cfg)
+		if err != nil {
+			log.Error(err)
+			return err
+		}
 	}
 
 	m := map[interface{}]interface{}{}
