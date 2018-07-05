@@ -13,6 +13,9 @@ import (
 )
 
 func LoadService(p *project.Project, cfg *config.CloudConfig, useNetwork bool, service string) error {
+	// First check the multi engine service file.
+	// If the name has been found in multi enging service file and matches, will not execute network.LoadServiceResource
+	// Otherwise will execute network.LoadServiceResource
 	bytes, err := network.LoadMultiEngineResource(service)
 	if err != nil || bytes == nil {
 		bytes, err = network.LoadServiceResource(service, useNetwork, cfg)

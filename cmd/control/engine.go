@@ -22,6 +22,7 @@ import (
 	composeYaml "github.com/docker/libcompose/yaml"
 	"github.com/pkg/errors"
 	"github.com/rancher/os/cmd/control/service"
+	"github.com/rancher/os/cmd/control/service/app"
 	"github.com/rancher/os/compose"
 	"github.com/rancher/os/config"
 	"github.com/rancher/os/docker"
@@ -53,15 +54,12 @@ func engineSubcommands() []cli.Command {
 			},
 		},
 		{
-			Name:   "create",
-			Usage:  "create Docker engine without a reboot",
-			Before: preFlightValidate,
-			Action: engineCreate,
+			Name:      "create",
+			Usage:     "create Docker engine without a reboot",
+			ArgsUsage: "<name>",
+			Before:    preFlightValidate,
+			Action:    engineCreate,
 			Flags: []cli.Flag{
-				cli.StringFlag{
-					Name:  "name, n",
-					Usage: "set the name for the engine",
-				},
 				cli.StringFlag{
 					Name:  "version, v",
 					Value: MultiEngineVersions[0],
@@ -85,6 +83,33 @@ func engineSubcommands() []cli.Command {
 					Name:  "authorized_keys",
 					Value: authorizedKeysPath(),
 					Usage: "set the ssh authorized_keys path for the engine",
+				},
+			},
+		},
+		{
+			Name:      "rm",
+			Usage:     "remove Docker engine without a reboot",
+			ArgsUsage: "<name>",
+			Before: func(c *cli.Context) error {
+				if len(c.Args()) != 1 {
+					return errors.New("Must specify exactly one Docker engine to remove")
+				}
+				return nil
+			},
+			Action: engineRemove,
+			Flags: []cli.Flag{
+				cli.IntFlag{
+					Name:  "timeout,t",
+					Usage: "Specify a shutdown timeout in seconds.",
+					Value: 10,
+				},
+				cli.BoolFlag{
+					Name:  "force,f",
+					Usage: "Allow deletion of all services",
+				},
+				cli.BoolFlag{
+					Name:  "v",
+					Usage: "Remove volumes associated with containers",
 				},
 			},
 		},
@@ -135,7 +160,7 @@ func engineSwitch(c *cli.Context) error {
 }
 
 func engineCreate(c *cli.Context) error {
-	name := c.String("name")
+	name := c.Args()[0]
 	version := c.String("version")
 	sshPort := c.Int("ssh-port")
 	authorizedKeys := c.String("authorized_keys")
@@ -168,6 +193,51 @@ func engineCreate(c *cli.Context) error {
 
 	// generate engine script
 	err = util.GenerateEngineScript(name)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	return nil
+}
+
+func engineRemove(c *cli.Context) error {
+	name := c.Args()[0]
+	cfg := config.LoadConfig()
+	p, err := compose.GetProject(cfg, true, false)
+	if err != nil {
+		log.Fatalf("Get project failed: %v", err)
+	}
+
+	// 1. service stop
+	err = app.ProjectStop(p, c)
+	if err != nil {
+		log.Fatalf("Stop project service failed: %v", err)
+	}
+
+	// 2. service delete
+	err = app.ProjectDelete(p, c)
+	if err != nil {
+		log.Fatalf("Delete project service failed: %v", err)
+	}
+
+	// 3. service delete
+	changed := false
+
+	if _, ok := cfg.Rancher.ServicesInclude[name]; !ok {
+		log.Fatalf("Failed to found enabled service %s", name)
+	}
+
+	delete(cfg.Rancher.ServicesInclude, name)
+	changed = true
+
+	if changed {
+		if err = config.Set("rancher.services_include", cfg.Rancher.ServicesInclude); err != nil {
+			log.Fatal(err)
+		}
+	}
+
+	// 4. remove service from file
+	err = RemoveEngineFromCompose(name)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -261,7 +331,10 @@ func CurrentEngine() (engine string) {
 }
 
 func preFlightValidate(c *cli.Context) error {
-	name := c.String("name")
+	if len(c.Args()) != 1 {
+		return errors.New("Must specify one engine name")
+	}
+	name := c.Args()[0]
 	if name == "" {
 		return errors.New("Must specify one engine name")
 	}
@@ -370,7 +443,6 @@ func generateEngineCompose(name, version string, sshPort int, authorizedKeys, ne
 		return err
 	}
 
-	// TODO: IP & DNS need to be configure
 	composeConfigs[name] = composeConfig.ServiceConfigV1{
 		Image:      "${REGISTRY_DOMAIN}/" + version,
 		Restart:    "always",
