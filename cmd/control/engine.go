@@ -32,7 +32,7 @@ import (
 )
 
 var (
-	MultiEngineVersions = []string{"docker:17.12.1-dind", "docker:18.03-dind", "docker:18.03.1-dind"}
+	MultiEngineVersions = []string{"wchao241/dind-ssh", "docker:17.12.1-dind", "docker:18.03-dind", "docker:18.03.1-dind"}
 	SSHKeyPathDefault   = "%s/.ssh/authorized_keys"
 )
 
@@ -452,7 +452,7 @@ func generateEngineCompose(name, version string, sshPort int, authorizedKeys, ne
 		Volumes: []string{
 			"/lib/modules:/lib/modules",
 			config.MultiDockerDataDir + "/" + name + ":" + config.MultiDockerDataDir + "/" + name,
-			authorizedKeys + ":/root/.ssh/authorized_keys",
+			"/var/lib/rancher/conf/authorized_keys:/root/.ssh/authorized_keys",
 		},
 		VolumesFrom: []string{},
 		Command: composeYaml.Command{
